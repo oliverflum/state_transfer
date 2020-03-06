@@ -52,6 +52,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
 
   let rec run functions store curr pclock= 
     S.check_control_status >>= fun status ->
+      Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
       match status with
         | S.Resume -> begin
             let fnext = next_function functions curr in
