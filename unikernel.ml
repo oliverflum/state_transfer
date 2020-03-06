@@ -13,7 +13,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
   let f1 store = 
     Logs.info (fun m -> m "F1");
     let rand = (Randomconv.int ~bound:10 R.generate) in
-    Logs.info (fun m -> m "Created random number %s" "bar");
+    Logs.info (fun m -> m "Created random number %i" rand);
     store#set "test" (S.VInt rand);
     Lwt.return ()
 
@@ -50,17 +50,17 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
       | "terminate" -> terminate
       | _ -> StringMap.find fnext_name functions
 
-  let rec run functions adjacency store curr pclock= 
+  let rec run functions store curr pclock= 
     S.check_control_status >>= fun status ->
       match status with
         | S.Resume -> begin
+            let fnext = next_function functions curr in
+            fnext store >>= fun () ->
+            let adjacency = get_adjacency store in
             let adj_arr = StringMap.find curr adjacency in
             let fnext_name = get_next_function_name adj_arr in
-            let fnext = next_function functions fnext_name in
-            fnext store >>= fun () ->
-            store#set "curr" (S.VString fnext_name);
-            let adjacency = get_adjacency store in
-            run functions adjacency store fnext_name pclock
+            store#set "next" (S.VString fnext_name);
+            run functions store fnext_name pclock
           end
         | _ -> store#suspend pclock status
 
@@ -75,7 +75,6 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let store = new S.webStore ctx res repo token id host_id in
     let functions = StringMap.of_seq (List.to_seq [("f1", f1); ("f2", f2); ("f3", f3)]) in
     store#init migration pclock >>= fun _ ->
-    let adjacency = get_adjacency store in
-    let last_fct = (S.to_str (store#get "curr" (S.VString "f1"))) in
-    run functions adjacency store last_fct pclock
+    let last_fct = (S.to_str (store#get "next" (S.VString "f1"))) in
+    run functions store last_fct pclock
 end
