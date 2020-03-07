@@ -51,7 +51,20 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
       | "terminate" -> terminate
       | _ -> StringMap.find fnext_name functions
 
-  let rec run functions store curr pclock= 
+  let read_shutdown =
+    OS.Xs.make () >>= fun client ->
+    S.poll_xen_store "control" "shutdown" client >>= function
+      | Some msg -> begin 
+          Logs.info (fun m -> m "read raw data: %s" msg); 
+          Lwt.return true 
+        end
+      | None -> begin 
+          Logs.info (fun m -> m "No raw data"); 
+          Lwt.return false 
+        end
+
+  let rec run functions store curr pclock =
+    read_shutdown >>= fun _ ->
     S.check_control_status >>= fun status ->
     Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
     match status with
@@ -77,6 +90,6 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let store = new S.webStore ctx res repo token id host_id in
     let functions = StringMap.of_seq (List.to_seq [("f1", f1); ("f2", f2); ("f3", f3)]) in
     store#init migration pclock >>= fun _ ->
-    let last_fct = (S.to_str (store#get "next" (S.VString "f1"))) in
-    run functions store last_fct pclock
+    let fct = (S.to_str (store#get "next" (S.VString "f1"))) in
+    run functions store fct pclock
 end
