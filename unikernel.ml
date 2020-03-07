@@ -53,18 +53,18 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
 
   let rec run functions store curr pclock= 
     S.check_control_status >>= fun status ->
-      Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
-      match status with
-        | S.Resume -> begin
-            let fnext = next_function functions curr in
-            fnext store >>= fun () ->
-            let adjacency = get_adjacency store in
-            let adj_arr = StringMap.find curr adjacency in
-            let fnext_name = get_next_function_name adj_arr in
-            store#set "next" (S.VString fnext_name);
-            run functions store fnext_name pclock
-          end
-        | _ -> store#suspend pclock status
+    Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
+    match status with
+      | S.Resume -> begin
+          let fnext = next_function functions curr in
+          fnext store >>= fun () ->
+          let adjacency = get_adjacency store in
+          let adj_arr = StringMap.find curr adjacency in
+          let fnext_name = get_next_function_name adj_arr in
+          store#set "next" (S.VString fnext_name);
+          run functions store fnext_name pclock
+        end
+      | _ -> store#suspend pclock status
 
   let start _time pclock res (ctx: CON.t) _r =
     let tstr = S.time pclock in
