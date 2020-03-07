@@ -63,9 +63,9 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
           Lwt.return false 
         end
 
-  let rec run functions store curr pclock =
+  let rec run functions store curr pclock xs_client=
     read_shutdown >>= fun _ ->
-    S.check_control_status >>= fun status ->
+    S.read_shutdown_value xs_client >>= fun status ->
     Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
     match status with
       | S.Resume -> begin
@@ -75,7 +75,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
           let adj_arr = StringMap.find curr adjacency in
           let fnext_name = get_next_function_name adj_arr in
           store#set "next" (S.VString fnext_name);
-          run functions store fnext_name pclock
+          run functions store fnext_name pclock xs_client
         end
       | _ -> store#suspend pclock status
 
@@ -91,5 +91,6 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let functions = StringMap.of_seq (List.to_seq [("f1", f1); ("f2", f2); ("f3", f3)]) in
     store#init migration pclock >>= fun _ ->
     let fct = (S.to_str (store#get "next" (S.VString "f1"))) in
-    run functions store fct pclock
+    OS.Xs.make () >>= fun client ->
+    run functions store fct pclock client
 end

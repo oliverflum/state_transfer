@@ -121,11 +121,6 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           end
         end
     in inner()
-
-  let check_control_status =
-    OS.Xs.make () >>= fun client ->
-    read_shutdown_value client >>= fun status ->
-    Lwt.return status
   
   let steady pclock = 
     Logs.info (fun m -> m "Waiting for go");
