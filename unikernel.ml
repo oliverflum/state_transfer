@@ -4,11 +4,7 @@ module StringMap = Map.Make(String)
 module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) (R: Mirage_random.S) = struct
 
   module S = Store.Make (TIME) (PClock)
-
-  type adjacency_rec = {
-    atomic_function: string;
-    condition: bool;
-  };;
+  module M = Machine.Make (S)
 
   let f1 store = 
     Logs.info (fun m -> m "F1");
@@ -39,46 +35,6 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     ] in
     StringMap.of_seq (List.to_seq assoc_adj_list)
 
-  let terminate store = 
-    store#terminate
-
-  let rec get_next_function_name = function
-    | [] -> "terminate"
-    | hd::tail -> if hd.condition == true then hd.atomic_function else get_next_function_name tail
-
-  let next_function functions fnext_name =
-    match fnext_name with
-      | "terminate" -> terminate
-      | _ -> StringMap.find fnext_name functions
-
-  let read_shutdown =
-    OS.Xs.make () >>= fun client ->
-    S.poll_xen_store "control" "shutdown" client >>= function
-      | Some msg -> begin 
-          Logs.info (fun m -> m "read raw data: %s" msg); 
-          Lwt.return true 
-        end
-      | None -> begin 
-          Logs.info (fun m -> m "No raw data"); 
-          Lwt.return false 
-        end
-
-  let rec run functions store curr pclock xs_client=
-    read_shutdown >>= fun _ ->
-    S.read_shutdown_value xs_client >>= fun status ->
-    Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
-    match status with
-      | S.Resume -> begin
-          let fnext = next_function functions curr in
-          fnext store >>= fun () ->
-          let adjacency = get_adjacency store in
-          let adj_arr = StringMap.find curr adjacency in
-          let fnext_name = get_next_function_name adj_arr in
-          store#set "next" (S.VString fnext_name);
-          run functions store fnext_name pclock xs_client
-        end
-      | _ -> store#suspend pclock status
-
   let start _time pclock res (ctx: CON.t) _r =
     let tstr = S.time pclock in
     Logs.info (fun m -> m "start-TS: %s" tstr);
@@ -88,7 +44,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let id = Key_gen.id () in
     let host_id = Key_gen.hostid () in
     let store = new S.webStore ctx res repo token id host_id in
-    let functions = StringMap.of_seq (List.to_seq [("f1", f1); ("f2", f2); ("f3", f3)]) in
+    let functions = [("f1", f1); ("f2", f2); ("f3", f3)] in
     store#init migration pclock >>= fun _ ->
     let fct = (S.to_str (store#get "next" (S.VString "f1"))) in
     OS.Xs.make () >>= fun client ->
