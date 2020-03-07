@@ -15,6 +15,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let rand = (Randomconv.int ~bound:10 R.generate) in
     Logs.info (fun m -> m "Created random number %i" rand);
     store#set "test" (S.VInt rand);
+    TIME.sleep_ns (Duration.of_sec 2) >>= fun () ->
     Lwt.return ()
 
   let f2 store = 
