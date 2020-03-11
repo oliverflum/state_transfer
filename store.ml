@@ -86,8 +86,8 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
     else 
       Lwt.return None
   
-  let time pclock =
-    PClock.now_d_ps pclock |>
+  let time =
+    PClock.now_d_ps () |>
     Ptime.v |>
     Ptime.to_float_s |>
     Float.to_string 
@@ -103,7 +103,7 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
       end 
     | None -> Lwt.return Resume
 
-  let logic pclock =
+  let logic =
     OS.Xs.make () >>= fun client ->
     let rec inner () = 
       read_shutdown_value client
@@ -115,20 +115,20 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
             end
           | _ -> begin
             let astr = type_of_action status in
-            let tstr = time pclock in
+            let tstr = time in
             Logs.info (fun m -> m "%s-TS: %s" astr tstr);
             Lwt.return status
           end
         end
     in inner()
   
-  let steady pclock = 
+  let steady = 
     Logs.info (fun m -> m "Waiting for go");
     OS.Xs.make () >>= fun client ->
     let rec inner () = 
       poll_xen_store "data" "migrate" client >>= function 
       | Some _ -> begin
-        let tstr = time pclock in
+        let tstr = time in
         Logs.info (fun m -> m "go-TS: %s" tstr);
         Lwt.return true
       end 
@@ -162,7 +162,7 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           Lwt.return false 
         end 
 
-      method private get_store pclock =
+      method private get_store =
         let path = "/hosts/"^host_id^"/unikernels/"^id^"/stores/latest" in
         let uri = Uri.of_string (repo ^ path) in
         let headers = Cohttp.Header.init_with "Authorization" ("Bearer " ^ token) in
@@ -170,7 +170,7 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
         let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
         Cohttp_lwt.Body.to_string body >>= fun body_str ->
         if code == 200 then begin
-          let tstr = time pclock in
+          let tstr = time in
           Logs.info (fun m -> m "Got store: %s at %s" body_str tstr);
           let json = JS.from_string body_str in 
           let store = JS.Util.member "store" json in
@@ -181,7 +181,7 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           Lwt.return false 
         end
   
-      method private post_store pclock status =
+      method private post_store status =
         let path = "/hosts/"^host_id^"/unikernels/"^id^"/stores" in
         let uri = Uri.of_string (repo ^ path) in
         let body_str = self#create_store_body status in
@@ -191,7 +191,7 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
         Cohttp_mirage.Client.post ~ctx:store_ctx ~body ~headers uri >>= fun (response, _) ->
         let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
         if code == 200 then begin
-          let tstr = time pclock in
+          let tstr = time in
           Logs.info (fun m -> m "Wrote store to repo at %s" tstr);
           Lwt.return true
         end else begin
@@ -253,10 +253,10 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           Lwt.return ()
         end
   
-      method suspend pclock status =
+      method suspend status =
         Logs.info (fun m -> m "Suspended");
         if token <> "" then begin
-          self#post_store pclock status >>= fun _ ->
+          self#post_store status >>= fun _ ->
           OS.Sched.shutdown OS.Sched.Poweroff;
           Lwt.return ()
         end else begin
@@ -265,17 +265,17 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           Lwt.return ()
         end
         
-      method init (migration: bool) pclock =
+      method init (migration: bool) =
         Logs.info (fun m -> m "Started");
         if repo <> "" then begin
           Logs.info (fun m -> m "Using repo: %s" repo);
           if migration then begin
             self#post_ready >>= fun _ ->
-            steady pclock >>= fun _ -> 
-            self#get_store pclock >>= fun _ ->
+            steady >>= fun _ -> 
+            self#get_store >>= fun _ ->
             Lwt.return true
           end else begin
-            self#get_store pclock >>= fun _ ->
+            self#get_store >>= fun _ ->
             Lwt.return true
           end
         end

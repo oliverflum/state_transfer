@@ -5,92 +5,98 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
 
   module S = Store.Make (TIME) (PClock)
 
+  (*Data type for adjacency Matrix*)
   type adjacency_rec = {
     atomic_function: string;
     condition: bool;
-  };;
+  }
 
-  let f1 store = 
+  (*Custom defined functions*)
+  let f1 store =
     Logs.info (fun m -> m "F1");
+    let round = (S.to_int (store#get "round" (S.VInt 0))) in
     let rand = (Randomconv.int ~bound:10 R.generate) in
     Logs.info (fun m -> m "Created random number %i" rand);
-    store#set "test" (S.VInt rand);
     TIME.sleep_ns (Duration.of_sec 2) >>= fun () ->
+    store#set "test" (S.VInt rand);
+    store#set "round" (S.VInt (round + 1));
     Lwt.return ()
 
-  let f2 store = 
+  let f2 store =
     Logs.info (fun m -> m "F2");
     TIME.sleep_ns (Duration.of_sec 2) >>= fun () ->
     Lwt.return ()
 
-  let f3 store = 
+  let f3 store =
     Logs.info (fun m -> m "F3");
     TIME.sleep_ns (Duration.of_sec 3) >>= fun () ->
     Lwt.return ()
 
+  (*The function passed on termination*)
+  let terminate store = 
+    store#terminate
+  
+  (*Define the adjacency matrix here as a associative list*)
   let get_adjacency store =
+    let f12 = (((S.to_int (store#get "test" (S.VInt 0))) >= 5) && ((S.to_int (store#get "round" (S.VInt 0))) <=10)) in
+    let f13 = (((S.to_int (store#get "test" (S.VInt 0))) < 5) && ((S.to_int (store#get "round" (S.VInt 0))) <=10)) in
     let assoc_adj_list = [
       ("f1", [
-        {atomic_function = "f2"; condition = ((S.to_int (store#get "test" (S.VInt 0))) >= 5)};
-        {atomic_function = "f3"; condition = ((S.to_int (store#get "test" (S.VInt 0))) < 5)};
+        {atomic_function = "f2"; condition = f12};
+        {atomic_function = "f3"; condition = f13};
+        {atomic_function = "terminate"; condition = ((S.to_int (store#get "round" (S.VInt 0))) > 10)};
       ]);
       ("f2", [{atomic_function = "f1"; condition = true}]);
       ("f3", [{atomic_function = "f1"; condition = true}]);
     ] in
-    StringMap.of_seq (List.to_seq assoc_adj_list)
+    let amap = StringMap.of_seq (List.to_seq assoc_adj_list) in
+    amap
 
-  let terminate store = 
-    store#terminate
+  (*Define a mapping from function names to functions. Required for serialisation*)
+  let get_function_map =
+    let functions = [("f1", f1); ("f2", f2); ("f3", f3)] in
+    let fmap = StringMap.of_seq (List.to_seq functions) in
+    fmap
 
-  let rec get_next_function_name = function
-    | [] -> "terminate"
-    | hd::tail -> if hd.condition == true then hd.atomic_function else get_next_function_name tail
+  (*These functions do not need to be edited*)
+  let get_next_function_name store curr = 
+    let adjacency = get_adjacency store in
+    let adj_arr = StringMap.find curr adjacency in
+    let rec inner = function
+      | [] -> "terminate"
+      | hd::tail -> if hd.condition == true then hd.atomic_function else inner tail
+    in inner adj_arr
 
-  let next_function functions fnext_name =
-    match fnext_name with
+  let get_function store name =
+    let functions = get_function_map in
+    match name with
       | "terminate" -> terminate
-      | _ -> StringMap.find fnext_name functions
+      | _ -> StringMap.find name functions
 
-  let read_shutdown =
-    OS.Xs.make () >>= fun client ->
-    S.poll_xen_store "control" "shutdown" client >>= function
-      | Some msg -> begin 
-          Logs.info (fun m -> m "read raw data: %s" msg); 
-          Lwt.return true 
-        end
-      | None -> begin 
-          Logs.info (fun m -> m "No raw data"); 
-          Lwt.return false 
-        end
-
-  let rec run functions store curr pclock xs_client=
-    read_shutdown >>= fun _ ->
+  let rec run store xs_client curr =
     S.read_shutdown_value xs_client >>= fun status ->
     Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
     match status with
       | S.Resume -> begin
-          let fnext = next_function functions curr in
-          fnext store >>= fun () ->
-          let adjacency = get_adjacency store in
-          let adj_arr = StringMap.find curr adjacency in
-          let fnext_name = get_next_function_name adj_arr in
+          let f = get_function store curr in
+          f store >>= fun () ->
+          let fnext_name = get_next_function_name store curr in
           store#set "next" (S.VString fnext_name);
-          run functions store fnext_name pclock xs_client
+          run store xs_client fnext_name 
         end
-      | _ -> store#suspend pclock status
+      | _ -> store#suspend status
 
-  let start _time pclock res (ctx: CON.t) _r =
-    let tstr = S.time pclock in
+  let start _time _pclock resolver conduit _random =
+    let tstr = S.time in
     Logs.info (fun m -> m "start-TS: %s" tstr);
     let token = Key_gen.token () in
     let repo = Key_gen.repo () in
     let migration = Key_gen.migration () in
     let id = Key_gen.id () in
     let host_id = Key_gen.hostid () in
-    let store = new S.webStore ctx res repo token id host_id in
-    let functions = StringMap.of_seq (List.to_seq [("f1", f1); ("f2", f2); ("f3", f3)]) in
-    store#init migration pclock >>= fun _ ->
+    let store = new S.webStore conduit resolver repo token id host_id in
+    store#init migration >>= fun _ ->
     let fct = (S.to_str (store#get "next" (S.VString "f1"))) in
     OS.Xs.make () >>= fun client ->
-    run functions store fct pclock client
+    run store client fct
 end
