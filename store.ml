@@ -162,8 +162,8 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           Lwt.return false 
         end 
 
-      method private get_store =
-        let path = "/hosts/"^host_id^"/unikernels/"^id^"/stores/latest" in
+      method private get_state =
+        let path = "/hosts/"^host_id^"/unikernels/"^id^"/states/latest" in
         let uri = Uri.of_string (repo ^ path) in
         let headers = Cohttp.Header.init_with "Authorization" ("Bearer " ^ token) in
         Cohttp_mirage.Client.get ~ctx:store_ctx ~headers uri >>= fun (response, body) ->
@@ -171,20 +171,20 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
         Cohttp_lwt.Body.to_string body >>= fun body_str ->
         if code == 200 then begin
           let tstr = time in
-          Logs.info (fun m -> m "Got store: %s at %s" body_str tstr);
+          Logs.info (fun m -> m "Got state: %s at %s" body_str tstr);
           let json = JS.from_string body_str in 
-          let store = JS.Util.member "store" json in
-          self#store_all store;
+          let state = JS.Util.member "state" json in
+          self#store_all state;
           Lwt.return true
         end else begin
-          Logs.info (fun m -> m "Could not retrieve store: %n" code);
+          Logs.info (fun m -> m "Could not retrieve state: %n" code);
           Lwt.return false 
         end
   
-      method private post_store status =
-        let path = "/hosts/"^host_id^"/unikernels/"^id^"/stores" in
+      method private post_state status =
+        let path = "/hosts/"^host_id^"/unikernels/"^id^"/states" in
         let uri = Uri.of_string (repo ^ path) in
-        let body_str = self#create_store_body status in
+        let body_str = self#create_state_body status in
         let body = Cohttp_lwt.Body.of_string body_str in
         let h1 = Cohttp.Header.init_with "Authorization" ("Bearer " ^ token) in
         let headers = Cohttp.Header.add h1 "Content-Type" "application/json" in
@@ -192,10 +192,10 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
         let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
         if code == 200 then begin
           let tstr = time in
-          Logs.info (fun m -> m "Wrote store to repo at %s" tstr);
+          Logs.info (fun m -> m "Wrote state to repo at %s" tstr);
           Lwt.return true
         end else begin
-          Logs.info (fun m -> m "Could not write store: %n" code);
+          Logs.info (fun m -> m "Could not write state: %n" code);
           Lwt.return false 
         end 
       
@@ -214,10 +214,10 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           Lwt.return false 
         end
       
-      method private create_store_body status =
+      method private create_state_body status =
         let js_map = StringMap.map (fun v -> (vtype_to_json v)) map in
         let l = List.of_seq (StringMap.to_seq js_map) in
-        let keys =  [("store", `Assoc l)] in
+        let keys =  [("state", `Assoc l)] in
         let keys = match status with 
           | Suspend -> ("action", `String "suspend") :: keys 
           | Migrate -> ("action", `String "migrate") :: keys  
@@ -256,7 +256,7 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
       method suspend status =
         Logs.info (fun m -> m "Suspended");
         if token <> "" then begin
-          self#post_store status >>= fun _ ->
+          self#post_state status >>= fun _ ->
           OS.Sched.shutdown OS.Sched.Poweroff;
           Lwt.return ()
         end else begin
@@ -272,10 +272,10 @@ module Make (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) = struct
           if migration then begin
             self#post_ready >>= fun _ ->
             steady >>= fun _ -> 
-            self#get_store >>= fun _ ->
+            self#get_state >>= fun _ ->
             Lwt.return true
           end else begin
-            self#get_store >>= fun _ ->
+            self#get_state >>= fun _ ->
             Lwt.return true
           end
         end
