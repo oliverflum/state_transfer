@@ -1,9 +1,10 @@
 open Lwt.Infix
 module StringMap = Map.Make(String)
+module S = Store
 
 module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_lwt.S) (CON: Conduit_mirage.S) (R: Mirage_random.S) = struct
 
-  module S = Store.Make (TIME) (PClock)
+  module C = Control.Make (TIME) (PClock)
 
   (*Data type for adjacency Matrix*)
   type adjacency_rec = {
@@ -59,7 +60,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     fmap
 
   (*These functions do not need to be edited*)
-  let get_next_function_name store curr = 
+  let get_next_function_name store (curr: string) = 
     let adjacency = get_adjacency store in
     let adj_arr = StringMap.find curr adjacency in
     let rec inner = function
@@ -73,21 +74,24 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
       | "terminate" -> terminate
       | _ -> StringMap.find name functions
 
-  let rec run store xs_client curr =
-    S.read_shutdown_value xs_client >>= fun status ->
-    Logs.info (fun m -> m "Read control message %s" (S.type_of_action status));
+  let rec run store (client: OS.Xs.client) (curr: string) =
+    C.read_shutdown_value client >>= fun status ->
+    Logs.info (fun m -> m "Read control message %s" (Control.Status.string_of_status status));
     match status with
-      | S.Resume -> begin
+      | Control.Status.Resume -> begin
           let f = get_function store curr in
           f store >>= fun () ->
           let fnext_name = get_next_function_name store curr in
           store#set "next" (S.VString fnext_name);
-          run store xs_client fnext_name 
+          run store client fnext_name 
         end
-      | _ -> store#suspend status
+      | _ -> begin 
+          let time = C.time in 
+          store#suspend time status
+        end
 
   let start _time _pclock resolver conduit _random =
-    let tstr = S.time in
+    let tstr = C.time in
     Logs.info (fun m -> m "start-TS: %s" tstr);
     let token = Key_gen.token () in
     let repo = Key_gen.repo () in
@@ -95,7 +99,8 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let id = Key_gen.id () in
     let host_id = Key_gen.hostid () in
     let store = new S.webStore conduit resolver repo token id host_id in
-    store#init migration >>= fun _ ->
+    let time = C.time in 
+    store#init time migration (C.steady) >>= fun _ ->
     let fct = (S.to_str (store#get "next" (S.VString "f1"))) in
     OS.Xs.make () >>= fun client ->
     run store client fct
