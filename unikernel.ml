@@ -45,7 +45,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
       ("f1", [
         {atomic_function = "f2"; condition = f12};
         {atomic_function = "f3"; condition = f13};
-        {atomic_function = "terminate"; condition = ((S.to_int (store#get "round" (S.VInt 0))) > 10)};
+        {atomic_function = "terminate"; condition = ((S.to_int (store#get "round" (S.VInt 0))) > 250)};
       ]);
       ("f2", [{atomic_function = "f1"; condition = true}]);
       ("f3", [{atomic_function = "f1"; condition = true}]);
