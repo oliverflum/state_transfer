@@ -19,7 +19,7 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
     let rand = (Randomconv.int ~bound:10 R.generate) in
     Logs.info (fun m -> m "Created random number %i" rand);
     TIME.sleep_ns (Duration.of_sec 2) >>= fun () ->
-    store#set "test" (S.VInt rand);
+    store#set "rand" (S.VInt rand);
     store#set "round" (S.VInt (round + 1));
     Lwt.return ()
 
@@ -39,8 +39,8 @@ module Main (TIME: Mirage_time.S) (PClock: Mirage_clock.PCLOCK) (RES: Resolver_l
   
   (*Define the adjacency matrix here as a associative list*)
   let get_adjacency store =
-    let f12 = (((S.to_int (store#get "test" (S.VInt 0))) >= 5) && ((S.to_int (store#get "round" (S.VInt 0))) <=250)) in
-    let f13 = (((S.to_int (store#get "test" (S.VInt 0))) < 5) && ((S.to_int (store#get "round" (S.VInt 0))) <=250)) in
+    let f12 = (((S.to_int (store#get "rand" (S.VInt 0))) >= 5) && ((S.to_int (store#get "round" (S.VInt 0))) <=250)) in
+    let f13 = (((S.to_int (store#get "rand" (S.VInt 0))) < 5) && ((S.to_int (store#get "round" (S.VInt 0))) <=250)) in
     let assoc_adj_list = [
       ("f1", [
         {atomic_function = "f2"; condition = f12};
